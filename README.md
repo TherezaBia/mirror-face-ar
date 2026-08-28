@@ -47,6 +47,16 @@ mirror-face-ar/
 
 Como a aplicação utiliza módulos ES nativos e acesso à câmera, execute um servidor HTTP simples:
 
+### Node.js (recomendado)
+
+```bash
+npm start
+```
+
+Abra `http://localhost:8080`. Durante o desenvolvimento, `npm run dev` reinicia o servidor automaticamente quando `server.js` é alterado.
+
+### Alternativas
+
 ```bash
 # Com Python:
 python -m http.server 8080
