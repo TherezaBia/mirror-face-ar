@@ -5,7 +5,15 @@ export class MirrorEngine {
   constructor() {}
 
   /**
-   * Atualiza a malha com espelhamento simétrico sincronizado (3D + UV)
+   * Função utilitária de interpolação suave (Hermite Smoothstep)
+   */
+  smoothstep(min, max, value) {
+    const x = Math.max(0, Math.min(1, (value - min) / (max - min)));
+    return x * x * (3 - 2 * x);
+  }
+
+  /**
+   * Atualiza a malha com espelhamento simétrico sincronizado (3D + UV + Fusão Central)
    */
   updateMesh(landmarks, faceMesh) {
     const geom = faceMesh.geometry;
@@ -16,9 +24,10 @@ export class MirrorEngine {
     const scaleXFactor = 2.0 * aspect;
     const scaleYFactor = 2.0;
 
-    // Eixo sagital central da face (nariz médio)
-    const centroX = landmarks[168].x;
-    const centroY = landmarks[168].y;
+    // 1. Eixo Sagital Adaptativo da Cabeça (Reta 3D da Testa ao Queixo)
+    const pTesta = landmarks[10];
+    const pQueixo = landmarks[152];
+    const dyTotal = pQueixo.y - pTesta.y || 1e-5;
 
     const isLeftHealthy = State.mirror.mode === 'left_healthy';
     const isRightHealthy = State.mirror.mode === 'right_healthy';
@@ -27,7 +36,10 @@ export class MirrorEngine {
     for (let i = 0; i < 468; i++) {
       const lm = landmarks[i];
 
-      // Valores reais padrão
+      // Posição central sagital na altura Y do ponto atual
+      const t = (lm.y - pTesta.y) / dyTotal;
+      const centroX = pTesta.x + t * (pQueixo.x - pTesta.x);
+
       let targetX = lm.x;
       let targetY = lm.y;
       let targetZ = lm.z;
@@ -37,8 +49,12 @@ export class MirrorEngine {
 
       if (isMirroring) {
         const isCentral = CENTRAL_LANDMARKS.has(i);
-        const isPointOnLeft = lm.x < centroX;
-        const isPointOnRight = lm.x > centroX;
+        const distFromCenter = lm.x - centroX;
+
+        // distFromCenter < 0 -> Lado Esquerdo da face
+        // distFromCenter > 0 -> Lado Direito da face
+        const isPointOnLeft = distFromCenter < -0.005;
+        const isPointOnRight = distFromCenter > 0.005;
 
         let shouldMirror = false;
 
@@ -54,30 +70,39 @@ export class MirrorEngine {
           const pairIdx = SYMMETRY_PAIRS[i] !== undefined ? SYMMETRY_PAIRS[i] : i;
           const healthyLm = landmarks[pairIdx];
 
-          // 1. ESPELHAMENTO GEOMÉTRICO 3D (Simetria de Movimento)
+          // Centro sagital na altura Y do ponto saudável
+          const tHealthy = (healthyLm.y - pTesta.y) / dyTotal;
+          const centroXHealthy = pTesta.x + tHealthy * (pQueixo.x - pTesta.x);
+
+          // 1. ESPELHAMENTO GEOMÉTRICO 3D (Sincronia de Relevo e Movimento Muscular)
           if (State.mirror.synchronize3D) {
-            const deltaX = centroX - healthyLm.x;
+            const deltaX = centroXHealthy - healthyLm.x;
             const mirrored3DX = centroX + (deltaX * State.calibration.scaleX) + State.calibration.offsetX;
             const mirrored3DY = healthyLm.y + State.calibration.offsetY;
             const mirrored3DZ = healthyLm.z;
 
-            const s = State.mirror.strength;
+            // Fator de suavização (Feathering na linha média)
+            const blendFactor = this.smoothstep(0.005, 0.035, Math.abs(distFromCenter));
+            const s = State.mirror.strength * blendFactor;
+
             targetX = lm.x * (1 - s) + mirrored3DX * s;
             targetY = lm.y * (1 - s) + mirrored3DY * s;
             targetZ = lm.z * (1 - s) + mirrored3DZ * s;
           }
 
-          // 2. ESPELHAMENTO DE TEXTURA UV
+          // 2. ESPELHAMENTO DE TEXTURA UV (Projeção da Imagem da Pele)
           const mirroredUvX = healthyLm.x;
           const mirroredUvY = healthyLm.y;
 
-          const s = State.mirror.strength;
-          targetUvX = lm.x * (1 - s) + mirroredUvX * s;
-          targetUvY = lm.y * (1 - s) + mirroredUvY * s;
+          const blendFactorUV = this.smoothstep(0.005, 0.035, Math.abs(distFromCenter));
+          const sUV = State.mirror.strength * blendFactorUV;
+
+          targetUvX = lm.x * (1 - sUV) + mirroredUvX * sUV;
+          targetUvY = lm.y * (1 - sUV) + mirroredUvY * sUV;
         }
       }
 
-      // Projeção final para a GPU
+      // Projeção 3D para o Three.js / GPU
       const x3d = (targetX - 0.5) * scaleXFactor;
       const y3d = (0.5 - targetY) * scaleYFactor;
       const z3d = -targetZ * State.view.zScale;
