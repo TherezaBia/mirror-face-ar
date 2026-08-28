@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MEPP AR - Espelho Facial em Realidade Aumentada</title>
+  
+  <link rel="stylesheet" href="src/styles/main.css">
+  
+  <!-- Fontes Google -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Container Principal -->
+  <div id="app-container">
+    
+    <!-- Feed de Vídeo da Webcam (Oculto, usado como textura na GPU) -->
+    <video id="webcam" playsinline autoplay muted></video>
+
+    <!-- Canvas de Renderização WebGL do Three.js -->
+    <canvas id="webgl-canvas"></canvas>
+
+    <!-- Overlay de Interface Superior (Header HUD) -->
+    <header id="header-hud">
+      <div class="brand">
+        <span class="badge">MEPP AR • Open Source</span>
+        <h1>Terapia de Espelho Facial 3D</h1>
+      </div>
+      <div class="stats-card">
+        <span id="fps-counter">FPS: --</span>
+        <span id="status-indicator" class="status-loading">Iniciando IA...</span>
+      </div>
+    </header>
+
+    <!-- Overlay de Permissão da Câmera -->
+    <div id="camera-prompt" class="prompt-overlay">
+      <div class="prompt-box">
+        <div class="icon">🪞</div>
+        <h2>Terapia de Espelho em Realidade Aumentada</h2>
+        <p>Autorize o uso da câmera para iniciar a sessão de reabilitação facial com espelhamento simétrico.</p>
+        <button id="btn-start-camera" class="btn-primary">Iniciar Sessão</button>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Import Maps para carregar Three.js e MediaPipe -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+        "@mediapipe/tasks-vision": "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm"
+      }
+    }
+  </script>
+
+  <!-- Ponto de Entrada da Aplicação -->
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

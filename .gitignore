@@ -1,0 +1,18 @@
+# Dependências e ambientes locais
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Arquivos de backup e legados
+_legado_estudos_python/
+web-ar-face/
+web-ar-mirror/
+mepp-web-clone/
+scratch/
+*.task
+
+# Arquivos de sistema
+.DS_Store
+Thumbs.db
