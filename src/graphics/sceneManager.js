@@ -14,11 +14,12 @@ export class SceneManager {
     this.bgMesh = null;
     this.videoTexture = null;
 
-    this.realMaterial = null;
+    this.faceSmoothMaterial = null;
     this.wireframeMaterial = null;
 
     this.positions = new Float32Array(468 * 3);
     this.uvs = new Float32Array(468 * 2);
+    this.alphas = new Float32Array(468);
 
     this.init();
   }
@@ -39,14 +40,14 @@ export class SceneManager {
     this.camera = new THREE.OrthographicCamera(-aspect, aspect, 1, -1, 0.01, 100);
     this.camera.position.z = 10;
 
-    // 1. Textura do Vídeo
+    // 1. Textura do Vídeo da Câmera
     this.videoTexture = new THREE.VideoTexture(this.video);
     this.videoTexture.colorSpace = THREE.SRGBColorSpace;
     this.videoTexture.minFilter = THREE.LinearFilter;
     this.videoTexture.magFilter = THREE.LinearFilter;
     this.videoTexture.generateMipmaps = false;
 
-    // 2. Fundo com o vídeo
+    // 2. Fundo (Vídeo da Câmera em Fullscreen)
     const bgGeometry = new THREE.PlaneGeometry(2 * aspect, 2);
     const bgMaterial = new THREE.MeshBasicMaterial({
       map: this.videoTexture,
@@ -66,13 +67,37 @@ export class SceneManager {
     faceGeometry.setIndex(indices);
     faceGeometry.setAttribute('position', new THREE.BufferAttribute(this.positions, 3));
     faceGeometry.setAttribute('uv', new THREE.BufferAttribute(this.uvs, 2));
+    faceGeometry.setAttribute('aAlpha', new THREE.BufferAttribute(this.alphas, 1));
 
-    // 4. Materiais
-    this.realMaterial = new THREE.MeshBasicMaterial({
-      map: this.videoTexture,
-      side: THREE.DoubleSide,
+    // 4. Materiais da Malha 3D (Shader com Suavização Geodésica de Bordas)
+    this.faceSmoothMaterial = new THREE.ShaderMaterial({
+      uniforms: {
+        map: { value: this.videoTexture },
+        uGlobalOpacity: { value: State.view.meshOpacity },
+      },
+      vertexShader: `
+        attribute float aAlpha;
+        varying vec2 vUv;
+        varying float vAlpha;
+        void main() {
+          vUv = uv;
+          vAlpha = aAlpha;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform sampler2D map;
+        uniform float uGlobalOpacity;
+        varying vec2 vUv;
+        varying float vAlpha;
+        void main() {
+          vec4 texColor = texture2D(map, vUv);
+          gl_FragColor = vec4(texColor.rgb, texColor.a * vAlpha * uGlobalOpacity);
+        }
+      `,
       transparent: true,
-      opacity: State.view.meshOpacity,
+      side: THREE.DoubleSide,
+      depthWrite: false,
     });
 
     this.wireframeMaterial = new THREE.MeshBasicMaterial({
@@ -83,11 +108,11 @@ export class SceneManager {
       opacity: 0.85,
     });
 
-    this.faceMesh = new THREE.Mesh(faceGeometry, this.realMaterial);
+    this.faceMesh = new THREE.Mesh(faceGeometry, this.faceSmoothMaterial);
     this.faceMesh.position.z = 0;
     this.scene.add(this.faceMesh);
 
-    // Modo espelho global
+    // Modo espelho horizontal da câmera
     this.scene.scale.set(-1, 1, 1);
 
     window.addEventListener('resize', () => this.onResize());
@@ -95,16 +120,14 @@ export class SceneManager {
 
   setVisualMode(mode) {
     if (mode === 'mirrored_face') {
-      this.faceMesh.material = this.realMaterial;
-      this.realMaterial.opacity = State.view.meshOpacity;
+      this.faceMesh.material = this.faceSmoothMaterial;
     } else {
       this.faceMesh.material = this.wireframeMaterial;
-      this.wireframeMaterial.opacity = 0.85;
     }
   }
 
   setOpacity(val) {
-    this.realMaterial.opacity = val;
+    this.faceSmoothMaterial.uniforms.uGlobalOpacity.value = val;
     this.wireframeMaterial.opacity = val;
   }
 

@@ -11,15 +11,15 @@ export class GuiController {
   setupControls() {
     // 1. Pasta de Terapia
     const therapyFolder = this.gui.addFolder('Modo de Terapia');
-    
+
     therapyFolder.add(State.mirror, 'mode', {
-      'Lado Esquerdo Saudável (Padrão)': 'left_healthy',
+      'Lado Esquerdo Saudável': 'left_healthy',
       'Lado Direito Saudável': 'right_healthy',
       'Desativado (Rosto Normal)': 'disabled',
-    }).name('Lado Paralisado');
+    }).name('Lado Saudável');
 
     therapyFolder.add(State.mirror, 'strength', 0.0, 1.0, 0.05).name('Força do Espelho');
-    therapyFolder.add(State.mirror, 'synchronize3D').name('Sincronia 3D (Geometria + Pele)');
+    therapyFolder.add(State.mirror, 'featherWidth', 0.01, 0.15, 0.005).name('Suavização Central');
 
     // 2. Pasta de Visualização
     const viewFolder = this.gui.addFolder('Visualização');
