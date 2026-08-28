@@ -69,6 +69,24 @@ Abra no navegador em `http://localhost:8080` e autorize o acesso à câmera.
 
 ---
 
+## Pipeline de textura pose-invariante
+
+O espelhamento de textura usa UVs fixas do modelo facial canônico do MediaPipe em três passes de GPU:
+
+1. A malha real é desembrulhada do vídeo para um atlas facial off-screen.
+2. O atlas é espelhado pelos pares anatômicos, com transição por distância geodésica até a linha central.
+3. A malha na pose atual é renderizada usando somente as UVs canônicas.
+
+Landmarks recebem suavização temporal EMA e superfícies em ângulo rasante perdem opacidade pela relação entre normal e direção de visão. Assim, rotação e inclinação da cabeça não alteram o endereço de textura de cada vértice.
+
+Os dados UV ficam em `src/data/canonical_uvs.js` e podem ser verificados junto com topologia e pares por:
+
+```bash
+npm test
+```
+
+---
+
 ## 📜 Licença
 
 MIT License - Software Livre e de Código Aberto.

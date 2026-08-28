@@ -7,6 +7,7 @@ export class FaceTracker {
     this.landmarker = null;
     this.isReady = false;
     this.lastVideoTime = -1;
+    this.smoothedLandmarks = null;
   }
 
   async init(onStatusUpdate) {
@@ -52,9 +53,25 @@ export class FaceTracker {
     const results = this.landmarker.detectForVideo(this.video, now);
 
     if (results.faceLandmarks && results.faceLandmarks.length > 0) {
-      return results.faceLandmarks[0];
+      const landmarks = results.faceLandmarks[0];
+      const alpha = AppConfig.tracking.landmarkSmoothing;
+
+      if (!this.smoothedLandmarks) {
+        this.smoothedLandmarks = landmarks.map((landmark) => ({ ...landmark }));
+      } else {
+        for (let i = 0; i < landmarks.length; i++) {
+          const current = landmarks[i];
+          const smoothed = this.smoothedLandmarks[i];
+          smoothed.x += (current.x - smoothed.x) * alpha;
+          smoothed.y += (current.y - smoothed.y) * alpha;
+          smoothed.z += (current.z - smoothed.z) * alpha;
+        }
+      }
+
+      return this.smoothedLandmarks;
     }
 
+    this.smoothedLandmarks = null;
     return null;
   }
 }

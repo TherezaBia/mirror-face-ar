@@ -11,6 +11,10 @@ export const AppConfig = {
     wasmPath: 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm',
     modelPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
   },
+  tracking: {
+    // EMA: 0.2 do frame novo + 0.8 do estado anterior.
+    landmarkSmoothing: 0.2,
+  },
 };
 
 export const State = {
@@ -18,7 +22,7 @@ export const State = {
   mirror: {
     mode: 'left_healthy',        // 'left_healthy' | 'right_healthy' | 'disabled'
     strength: 1.0,               // 0.0 a 1.0
-    featherWidth: 0.04,          // Largura da transição central
+    featherWidth: 0.08,          // Largura geodesica da transicao central
   },
 
   // Visualização e Renderização
@@ -27,6 +31,7 @@ export const State = {
     meshOpacity: 1.0,
     wireframeColor: '#38bdf8',
     zScale: 1.8,
+    atlasSize: 1024,
   },
 
   // Calibração Anatômica Milimétrica (MEPP)

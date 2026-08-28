@@ -1,163 +1,160 @@
 import { CENTRAL_LANDMARKS, SYMMETRY_PAIRS } from '../data/pairs.js';
 import { TRIANGLES } from '../data/triangles.js';
+import { CANONICAL_UVS } from '../data/canonical_uvs.js';
+import { CANONICAL_CENTER_DISTANCES } from '../data/canonical_metrics.js';
 import { State } from '../config.js';
 
-// Vértices do contorno externo do MediaPipe (borda externa do rosto)
+// Vertices do contorno externo do MediaPipe.
 const CONTOUR_LANDMARKS = [
   10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379, 378, 400, 377,
-  152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109
+  152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127, 162, 21, 54, 103, 67, 109,
 ];
 
-// Vértices da borda imediata dos olhos e lábios para suavização
-const APERTURE_RIM_LANDMARKS = new Set([
-  33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246,
-  263, 249, 390, 373, 374, 380, 381, 382, 362, 398, 384, 385, 386, 387, 388, 466,
-  78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95
-]);
-
-// Pré-cálculo da distância geodésica na malha a partir do contorno para ancoragem sem degraus
 const ALPHA_WEIGHTS = new Float32Array(468);
 
 (function precomputeAlphaWeights() {
-  const adj = Array.from({ length: 468 }, () => []);
+  const adjacency = Array.from({ length: 468 }, () => []);
   for (const [a, b, c] of TRIANGLES) {
     if (a < 468 && b < 468 && c < 468) {
-      adj[a].push(b, c);
-      adj[b].push(a, c);
-      adj[c].push(a, b);
+      adjacency[a].push(b, c);
+      adjacency[b].push(a, c);
+      adjacency[c].push(a, b);
     }
   }
 
-  const dist = new Int32Array(468).fill(-1);
+  const distances = new Int32Array(468).fill(-1);
   const queue = [];
-
-  for (const idx of CONTOUR_LANDMARKS) {
-    dist[idx] = 0;
-    queue.push(idx);
+  for (const index of CONTOUR_LANDMARKS) {
+    distances[index] = 0;
+    queue.push(index);
   }
 
-  while (queue.length > 0) {
-    const u = queue.shift();
-    for (const v of adj[u]) {
-      if (dist[v] === -1) {
-        dist[v] = dist[u] + 1;
-        queue.push(v);
+  for (let cursor = 0; cursor < queue.length; cursor++) {
+    const current = queue[cursor];
+    for (const neighbor of adjacency[current]) {
+      if (distances[neighbor] === -1) {
+        distances[neighbor] = distances[current] + 1;
+        queue.push(neighbor);
       }
     }
   }
 
   for (let i = 0; i < 468; i++) {
-    let w = Math.min(1.0, Math.max(0.0, dist[i] / 3.0));
-    if (APERTURE_RIM_LANDMARKS.has(i)) {
-      w = Math.min(w, 0.88);
-    }
-    ALPHA_WEIGHTS[i] = w;
+    ALPHA_WEIGHTS[i] = Math.min(1, Math.max(0, distances[i] / 3));
   }
 })();
 
 export class MirrorEngine {
-  constructor() {}
-
   /**
-   * Atualiza a malha facial com espelhamento simétrico sagital de alta fidelidade.
+   * Atualiza somente a geometria em pose e as coordenadas de captura do unwrap.
+   * As UVs finais permanecem canonicas e invariantes a pose.
    */
   updateMesh(landmarks, faceMesh) {
-    const geom = faceMesh.geometry;
-    const posAttr = geom.attributes.position;
-    const uvAttr = geom.attributes.uv;
-    const alphaAttr = geom.attributes.aAlpha;
+    const geometry = faceMesh.geometry;
+    const positionAttribute = geometry.attributes.position;
+    const alphaAttribute = geometry.attributes.aAlpha;
+    const screenUvAttribute = geometry.attributes.aScreenUv;
 
     const aspect = window.innerWidth / window.innerHeight;
-    const scaleXFactor = 2.0 * aspect;
-    const scaleYFactor = 2.0;
+    const scaleXFactor = 2 * aspect;
+    const scaleYFactor = 2;
 
-    // 1. Eixo Sagital Direto da Cabeça (Vetor 2D/3D Testa 10 -> Queixo 152)
-    const pTesta = landmarks[10];
-    const pQueixo = landmarks[152];
+    // MediaPipe expressa Z aproximadamente na mesma escala de X. X e Z sao
+    // trazidos para a mesma metrica visual de Y antes de estimar o plano.
+    const toMetric = (landmark) => ({
+      x: landmark.x * aspect,
+      y: landmark.y,
+      z: (landmark.z || 0) * aspect,
+    });
 
-    const dx = pQueixo.x - pTesta.x;
-    const dy = pQueixo.y - pTesta.y;
-    const lenSq = dx * dx + dy * dy || 1e-6;
-    const len = Math.sqrt(lenSq);
+    const leftCheek = toMetric(landmarks[234]);
+    const rightCheek = toMetric(landmarks[454]);
+    const lateral = {
+      x: rightCheek.x - leftCheek.x,
+      y: rightCheek.y - leftCheek.y,
+      z: rightCheek.z - leftCheek.z,
+    };
+    const lateralLength = Math.hypot(lateral.x, lateral.y, lateral.z) || 1e-6;
+    lateral.x /= lateralLength;
+    lateral.y /= lateralLength;
+    lateral.z /= lateralLength;
+
+    const sagittalCenter = { x: 0, y: 0, z: 0 };
+    for (const index of CENTRAL_LANDMARKS) {
+      const point = toMetric(landmarks[index]);
+      sagittalCenter.x += point.x;
+      sagittalCenter.y += point.y;
+      sagittalCenter.z += point.z;
+    }
+    sagittalCenter.x /= CENTRAL_LANDMARKS.size;
+    sagittalCenter.y /= CENTRAL_LANDMARKS.size;
+    sagittalCenter.z /= CENTRAL_LANDMARKS.size;
 
     const isLeftHealthy = State.mirror.mode === 'left_healthy';
     const isRightHealthy = State.mirror.mode === 'right_healthy';
-    const isMirroring = State.mirror.mode !== 'disabled' && State.mirror.strength > 0.0;
-    const strength = State.mirror.strength;
+    const isMirroring = State.mirror.mode !== 'disabled' && State.mirror.strength > 0;
 
     for (let i = 0; i < 468; i++) {
-      const lm = landmarks[i];
+      const landmark = landmarks[i];
       const baseAlpha = ALPHA_WEIGHTS[i];
+      let targetX = landmark.x;
+      let targetY = landmark.y;
+      let targetZ = landmark.z || 0;
 
-      let targetX = lm.x;
-      let targetY = lm.y;
-      let targetZ = lm.z || 0;
-      let targetUvX = lm.x;
-      let targetUvY = lm.y;
+      if (isMirroring && !CENTRAL_LANDMARKS.has(i)) {
+        // O lado anatomico vem do atlas fixo. Rotacao e escorco nao mudam esta decisao.
+        const canonicalU = CANONICAL_UVS[i * 2];
+        const shouldMirror = (isLeftHealthy && canonicalU < 0.5)
+          || (isRightHealthy && canonicalU > 0.5);
 
-      if (isMirroring) {
-        const isCentral = CENTRAL_LANDMARKS.has(i);
+        if (shouldMirror) {
+          const pairIndex = SYMMETRY_PAIRS[i] ?? i;
+          const healthyLandmark = landmarks[pairIndex];
+          const healthyPoint = toMetric(healthyLandmark);
+          const planeDistance = (
+            (healthyPoint.x - sagittalCenter.x) * lateral.x
+            + (healthyPoint.y - sagittalCenter.y) * lateral.y
+            + (healthyPoint.z - sagittalCenter.z) * lateral.z
+          );
+          const reflectionScale = 1 + State.calibration.scaleX;
+          const mirroredPoint = {
+            x: healthyPoint.x - reflectionScale * planeDistance * lateral.x,
+            y: healthyPoint.y - reflectionScale * planeDistance * lateral.y,
+            z: healthyPoint.z - reflectionScale * planeDistance * lateral.z,
+          };
 
-        if (!isCentral) {
-          // Distância perpendicular com sinal até o eixo testa -> queixo
-          const cross = dx * (lm.y - pTesta.y) - dy * (lm.x - pTesta.x);
-          const signedDist = cross / len;
+          const mirroredX = mirroredPoint.x / aspect + State.calibration.offsetX;
+          const mirroredY = mirroredPoint.y + State.calibration.offsetY;
+          const mirroredZ = mirroredPoint.z / aspect;
+          const featherWidth = Math.max(State.mirror.featherWidth, 0.0001);
+          const normalizedDistance = Math.min(
+            1,
+            Math.max(0, CANONICAL_CENTER_DISTANCES[i] / featherWidth),
+          );
+          const centerBlend = normalizedDistance * normalizedDistance * (3 - 2 * normalizedDistance);
+          const effectiveStrength = State.mirror.strength * baseAlpha * centerBlend;
 
-          // Modo espelho da câmera:
-          //   signedDist < 0 -> Lado direito do paciente (lado esquerdo da tela)
-          //   signedDist > 0 -> Lado esquerdo do paciente (lado direito da tela)
-          let shouldMirror = false;
-          if (isLeftHealthy && signedDist < -0.001) {
-            shouldMirror = true;
-          } else if (isRightHealthy && signedDist > 0.001) {
-            shouldMirror = true;
-          }
-
-          if (shouldMirror) {
-            const pairIdx = SYMMETRY_PAIRS[i] !== undefined ? SYMMETRY_PAIRS[i] : i;
-            const healthyLm = landmarks[pairIdx];
-
-            // 1. Projeção ortogonal do ponto saudável sobre o eixo sagital
-            const tH = ((healthyLm.x - pTesta.x) * dx + (healthyLm.y - pTesta.y) * dy) / lenSq;
-            const cHX = pTesta.x + tH * dx;
-            const cHY = pTesta.y + tH * dy;
-
-            // 2. Vetor perpendicular do ponto saudável ao eixo central
-            const wX = healthyLm.x - cHX;
-            const wY = healthyLm.y - cHY;
-
-            // Reflexão pura perpendicular ao eixo da cabeça (sem torção vertical)
-            const mirroredX = cHX - (wX * State.calibration.scaleX) + State.calibration.offsetX;
-            const mirroredY = cHY - (wY * State.calibration.scaleX) + State.calibration.offsetY;
-            const mirroredZ = healthyLm.z || 0;
-
-            // Ancoragem perimétrica suave para fusão com a imagem real
-            const effectiveStrength = strength * baseAlpha;
-
-            targetX = lm.x * (1 - effectiveStrength) + mirroredX * effectiveStrength;
-            targetY = lm.y * (1 - effectiveStrength) + mirroredY * effectiveStrength;
-            targetZ = (lm.z || 0) * (1 - effectiveStrength) + mirroredZ * effectiveStrength;
-
-            // Textura mapeada diretamente do tecido saudável
-            targetUvX = healthyLm.x;
-            targetUvY = healthyLm.y;
-          }
+          targetX = landmark.x * (1 - effectiveStrength) + mirroredX * effectiveStrength;
+          targetY = landmark.y * (1 - effectiveStrength) + mirroredY * effectiveStrength;
+          targetZ = (landmark.z || 0) * (1 - effectiveStrength) + mirroredZ * effectiveStrength;
         }
       }
 
-      // Projeção 3D para GPU
-      const x3d = (targetX - 0.5) * scaleXFactor;
-      const y3d = (0.5 - targetY) * scaleYFactor;
-      const z3d = -targetZ * State.view.zScale;
+      positionAttribute.setXYZ(
+        i,
+        (targetX - 0.5) * scaleXFactor,
+        (0.5 - targetY) * scaleYFactor,
+        -targetZ * State.view.zScale,
+      );
+      alphaAttribute.setX(i, baseAlpha);
 
-      posAttr.setXYZ(i, x3d, y3d, z3d);
-      uvAttr.setXY(i, targetUvX, 1.0 - targetUvY);
-      alphaAttr.setX(i, baseAlpha);
+      // O passe 1 sempre captura o rosto real, antes de qualquer espelhamento.
+      screenUvAttribute.setXY(i, landmark.x, 1 - landmark.y);
     }
 
-    posAttr.needsUpdate = true;
-    uvAttr.needsUpdate = true;
-    alphaAttr.needsUpdate = true;
-    geom.computeVertexNormals();
+    positionAttribute.needsUpdate = true;
+    alphaAttribute.needsUpdate = true;
+    screenUvAttribute.needsUpdate = true;
+    faceMesh.visible = true;
   }
 }
